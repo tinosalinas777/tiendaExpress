@@ -96,6 +96,7 @@ drop policy if exists "Admins pueden actualizar pedidos" on orders;
 drop policy if exists "Admins pueden ver items de pedidos" on order_items;
 drop policy if exists "Categorías visibles para todos" on categories;
 drop policy if exists "Productos activos visibles para todos" on products;
+drop policy if exists "Un usuario puede ver su propio registro en admin_users" on admin_users;
 
 -- Lectura pública de catálogo (categorías y productos activos)
 create policy "Categorías visibles para todos"
@@ -106,11 +107,17 @@ create policy "Productos activos visibles para todos"
   on products for select
   using (active = true);
 
--- admin_users: nadie puede leer/escribir esta tabla desde el navegador
--- (ni con la anon key ni logueado). Solo se toca a mano desde el SQL
--- Editor de Supabase, o internamente por las funciones/policies de abajo.
--- (No hace falta ninguna policy: sin policies, con RLS activado, el
--- acceso queda cerrado para todos los roles del cliente por defecto.)
+-- admin_users: un usuario solo puede ver si SU PROPIO id está en la lista
+-- (no puede ver quiénes son los demás admins). Esta policy es necesaria:
+-- sin ella, las políticas de products/orders de abajo (que hacen "exists
+-- (select 1 from admin_users ...)") siempre dan falso para todos, porque
+-- esa sub-consulta también queda sujeta a RLS de admin_users. Es un caso
+-- fácil de pasar por alto — si en algún momento el panel te tira "row-level
+-- security policy" al crear/editar/borrar algo estando ya logueado como
+-- admin, revisá primero que esta policy exista.
+create policy "Un usuario puede ver su propio registro en admin_users"
+  on admin_users for select
+  using (auth.uid() = user_id);
 
 -- IMPORTANTE: a propósito NO hay policy de INSERT pública en `orders` ni
 -- en `order_items`. El checkout ya no inserta filas directamente: llama a
@@ -249,6 +256,7 @@ grant execute on function create_order(text, text, text, text, text, jsonb) to a
 
 -- =========================================================
 -- Datos de ejemplo (opcional, podés borrar esta sección)
+-- Están armados para no duplicarse si volvés a correr este script.
 -- =========================================================
 insert into categories (id, name, icon) values
   ('almacen', 'Almacén', '🥫'),
@@ -261,11 +269,15 @@ insert into categories (id, name, icon) values
   ('congelados', 'Congelados', '🧊')
 on conflict (id) do nothing;
 
-insert into products (name, category_id, price, unit, stock, icon, badge, rating, reviews) values
+insert into products (name, category_id, price, unit, stock, icon, badge, rating, reviews)
+select * from (values
   ('Pan lactal integral 500g', 'almacen', 1890, 'un', 40, '🍞', '2x1', 4.6, 58),
   ('Arroz largo fino 1kg', 'almacen', 1450, 'un', 80, '🍚', null, 4.7, 112),
   ('Leche entera 1L', 'lacteos', 1190, 'un', 100, '🥛', 'Oferta', 4.8, 203),
   ('Banana', 'frescos', 1690, 'kg', 60, '🍌', null, 4.4, 41),
   ('Agua mineral sin gas 2L', 'bebidas', 990, 'un', 120, '💧', null, 4.6, 95),
   ('Papel higiénico x12', 'limpieza', 4990, 'un', 30, '🧻', null, 4.6, 61)
-on conflict do nothing;
+) as seed(name, category_id, price, unit, stock, icon, badge, rating, reviews)
+where not exists (
+  select 1 from products p where p.name = seed.name
+);
