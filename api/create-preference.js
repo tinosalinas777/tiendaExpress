@@ -40,6 +40,9 @@ export default async function handler(req, res) {
     if (orderError || !order) {
       return res.status(404).json({ error: 'Pedido no encontrado' })
     }
+    if (order.payment_status === 'aprobado') {
+      return res.status(400).json({ error: 'Este pedido ya fue pagado.' })
+    }
 
     const { data: items, error: itemsError } = await supabaseAdmin
       .from('order_items')

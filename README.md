@@ -83,7 +83,65 @@ supabase/
   schema.sql        Tablas, políticas RLS y datos de ejemplo
 ```
 
-## 5. Integrar Mercado Pago
+## 5. Seguridad — pasos obligatorios
+
+Este proyecto pasó por una auditoría de seguridad. El código ya tiene los arreglos
+(los precios se calculan en el servidor, no en el navegador), pero hay **tres pasos
+manuales que tenés que hacer vos** en el panel de Supabase para que la protección
+quede completa:
+
+### 6.1 Correr el `schema.sql` actualizado
+
+Si ya habías corrido una versión anterior de `supabase/schema.sql`, volvé a
+ejecutar el archivo completo en el SQL Editor. Es seguro: borra y vuelve a crear
+solo las *políticas* (no toca tus datos), y agrega la función `create_order` que
+ahora calcula los precios del lado del servidor en vez de confiar en lo que
+mande el navegador.
+
+### 6.2 Dar de alta al administrador en `admin_users`
+
+Antes, cualquier usuario logueado tenía acceso total al panel `/admin`. Ahora
+además de crear el usuario en **Authentication → Users**, tenés que agregarlo a
+la lista blanca:
+
+1. Copiá el UUID del usuario desde Authentication → Users (columna "UID").
+2. En el SQL Editor, corré:
+   ```sql
+   insert into admin_users (user_id) values ('PEGÁ-EL-UUID-ACÁ');
+   ```
+Sin este paso, ese usuario puede loguearse pero no va a poder ver ni editar
+nada en `/admin` (las políticas RLS lo bloquean).
+
+### 6.3 Desactivar el alta pública de usuarios
+
+Por las dudas — aunque ya no depende de esto para la seguridad del panel — andá a
+**Authentication → Providers → Email** y desactivá "Allow new users to sign up".
+Así nadie puede crearse una cuenta por su cuenta desde la API pública.
+
+### 6.4 Configurar el secreto del webhook de Mercado Pago (opcional pero recomendado)
+
+En el panel de Mercado Pago Developers → tu aplicación → Webhooks, copiá la
+"Clave secreta" y cargala como `MP_WEBHOOK_SECRET` en las variables de entorno
+de Vercel. Con eso, `/api/mercadopago-webhook` verifica que la notificación
+realmente vino de Mercado Pago antes de procesarla. Si no la configurás, el
+webhook igual funciona (vuelve a consultar el pago a la API de Mercado Pago
+antes de confiar en cualquier dato), pero queda un poco más expuesto a
+notificaciones falsas que sólo generan trabajo de más al servidor.
+
+### Qué cambió por dentro (para referencia)
+
+- El checkout ya no hace `insert` directo en `orders`/`order_items` desde el
+  navegador. Llama a una función de Supabase (`create_order`) que recibe
+  únicamente `product_id` + cantidad, busca el precio real en la tabla
+  `products` y calcula ella misma el subtotal/envío/total. Así nadie puede
+  pagar un pedido a un precio inventado editando el carrito en el navegador.
+- Las políticas de administrador ahora chequean pertenencia a la tabla
+  `admin_users`, no solo "está logueado".
+- El webhook de Mercado Pago valida la firma de la notificación (si
+  configuraste `MP_WEBHOOK_SECRET`) y compara el monto pagado contra el total
+  del pedido antes de marcarlo como aprobado.
+
+## 7. Integrar Mercado Pago
 
 El checkout deja elegir entre **efectivo/transferencia** (se confirma por WhatsApp,
 como antes) o **Mercado Pago** (Checkout Pro: el cliente paga con tarjeta, débito o
@@ -106,6 +164,7 @@ Supabase del paso 4):
 | Variable | Valor |
 |---|---|
 | `MP_ACCESS_TOKEN` | Access token de Mercado Pago |
+| `MP_WEBHOOK_SECRET` | Clave secreta de webhooks de Mercado Pago (ver sección 5.4) |
 | `SUPABASE_URL` | La misma URL que `VITE_SUPABASE_URL` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key de Supabase (Project Settings → API → `service_role`, **secreta**, nunca la pongas con prefijo `VITE_`) |
 
@@ -149,7 +208,7 @@ webhook en local hace falta exponer tu `vercel dev` con algo como
 sí (sin depender del webhook), alcanza con tener el proyecto ya deployado en
 Vercel con las variables de entorno cargadas.
 
-## 6. Panel de administración
+## 8. Panel de administración
 
 La tienda incluye un panel en `/admin` para que el dueño del negocio pueda:
 - Ver un resumen (pedidos pendientes, ventas del día, productos con poco stock)
@@ -162,14 +221,15 @@ La tienda incluye un panel en `/admin` para que el dueño del negocio pueda:
 1. En Supabase, andá a **Authentication → Users → Add user**.
 2. Cargá el email y una contraseña (podés tildar "Auto Confirm User" para no
    depender del mail de confirmación).
-3. Entrá a `https://tu-tienda.vercel.app/admin` (o `localhost:5173/admin` en local)
+3. Copiá el UUID de ese usuario y agregalo a la tabla `admin_users` (ver
+   sección 5.2 más arriba) — sin este paso el login funciona pero el panel no
+   deja ver ni editar nada.
+4. Entrá a `https://tu-tienda.vercel.app/admin` (o `localhost:5173/admin` en local)
    e iniciá sesión con ese usuario.
 
-Por ahora cualquier usuario autenticado tiene acceso completo al panel — pensado
-para que lo use el dueño o un encargado. Si en el futuro necesitás distinguir
-roles (por ejemplo, que el repartidor solo vea pedidos y no pueda tocar precios),
-se puede agregar una tabla `admin_users` con roles y ajustar las políticas RLS en
-`supabase/schema.sql`.
+Solo los usuarios dados de alta en `admin_users` tienen acceso al panel — no
+alcanza con estar logueado. Si necesitás sumar un encargado más adelante,
+repetís el mismo paso 3 con su UUID.
 
 También hay un enlace discreto "Acceso administrador" al pie de la tienda que
 lleva directo a `/admin`.
@@ -184,4 +244,3 @@ lleva directo a `/admin`.
 - **Notificación al repartidor**: conectar el evento de "nuevo pedido" con
   Supabase Realtime o un webhook a WhatsApp Business para avisar automáticamente
   cuando entra un pedido nuevo.
-"# tiendaExpress" 

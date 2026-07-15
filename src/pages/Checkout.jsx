@@ -21,15 +21,13 @@ export default function Checkout() {
   const handleChange = (e) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
-  const buildWhatsappMessage = (orderId) => {
-    const lines = items.map(
-      (i) =>
-        `• ${i.qty} x ${i.name} — $ ${(i.price * i.qty).toLocaleString("es-AR")}`,
-    );
+  const buildWhatsappMessage = (orderId, amounts) => {
+    const lines = items.map((i) => `• ${i.qty} x ${i.name}`);
+    const { subtotal: sub, shipping: ship, total: tot } = amounts;
     return encodeURIComponent(
-      `Hola! Quiero confirmar mi pedido${orderId ? ` #${orderId}` : ""}:\n\n${lines.join("\n")}\n\nSubtotal: $ ${subtotal.toLocaleString(
+      `Hola! Quiero confirmar mi pedido${orderId ? ` #${orderId}` : ""}:\n\n${lines.join("\n")}\n\nSubtotal: $ ${sub.toLocaleString(
         "es-AR",
-      )}\nEnvío: $ ${shipping.toLocaleString("es-AR")}\nTotal: $ ${total.toLocaleString("es-AR")}\n\nNombre: ${form.name}\nDirección: ${
+      )}\nEnvío: $ ${ship.toLocaleString("es-AR")}\nTotal: $ ${tot.toLocaleString("es-AR")}\n\nNombre: ${form.name}\nDirección: ${
         form.address
       }\nPago: ${form.payment}${form.notes ? `\nNotas: ${form.notes}` : ""}`,
     );
@@ -43,40 +41,30 @@ export default function Checkout() {
 
     try {
       let orderId = null;
+      // Los montos "de verdad" (recalculados por el servidor) — no los del
+      // carrito local, que el navegador podría haber alterado.
+      let amounts = { subtotal, shipping, total };
 
       if (isSupabaseConfigured) {
-        const { data: order, error: orderError } = await supabase
-          .from("orders")
-          .insert({
-            customer_name: form.name,
-            customer_phone: form.phone,
-            delivery_address: form.address,
-            notes: form.notes,
-            payment_method: form.payment,
-            subtotal,
-            shipping,
-            total,
-            status: "pendiente",
-            payment_status:
-              form.payment === "mercadopago" ? "pendiente" : "no_aplica",
-          })
-          .select()
-          .single();
+        // create_order recalcula los precios leyendo la tabla `products`
+        // en el servidor: el navegador solo manda product_id + cantidad,
+        // nunca el precio. Ver supabase/schema.sql.
+        const { data, error: rpcError } = await supabase.rpc("create_order", {
+          p_customer_name: form.name,
+          p_customer_phone: form.phone,
+          p_delivery_address: form.address,
+          p_notes: form.notes,
+          p_payment_method: form.payment,
+          p_items: items.map((i) => ({ product_id: i.id, quantity: i.qty })),
+        });
 
-        if (orderError) throw orderError;
-        orderId = order.id;
-
-        const orderItems = items.map((i) => ({
-          order_id: order.id,
-          product_id: i.id,
-          product_name: i.name,
-          quantity: i.qty,
-          unit_price: i.price,
-        }));
-        const { error: itemsError } = await supabase
-          .from("order_items")
-          .insert(orderItems);
-        if (itemsError) throw itemsError;
+        if (rpcError) throw rpcError;
+        orderId = data.order_id;
+        amounts = {
+          subtotal: Number(data.subtotal),
+          shipping: Number(data.shipping),
+          total: Number(data.total),
+        };
       }
 
       // Pago con Mercado Pago: creamos la preferencia y redirigimos a Checkout Pro.
@@ -103,7 +91,7 @@ export default function Checkout() {
       }
 
       // Pago en efectivo o transferencia: confirmamos por WhatsApp.
-      const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${buildWhatsappMessage(orderId)}`;
+      const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${buildWhatsappMessage(orderId, amounts)}`;
       clearCart();
       window.open(waUrl, "_blank");
       navigate("/", { state: { orderConfirmed: true } });
