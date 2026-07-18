@@ -1,6 +1,6 @@
 const benefits = [
   {
-    image: "/delivery.jpg",
+    image: "/delivery.png",
     title: "Reparto en moto",
     text: "Envíos rápidos por el barrio",
   },
