@@ -9,6 +9,7 @@ import Cart from "../pages/Cart";
 import Checkout from "../pages/Checkout";
 import Contact from "../pages/Contact";
 import PaymentResult from "../pages/PaymentResult";
+import WhatsAppFloatButton from "./WhatsAppFloatButton";
 
 export default function StoreLayout() {
   return (
@@ -37,6 +38,7 @@ export default function StoreLayout() {
         </Routes>
       </main>
       <Footer />
+      <WhatsAppFloatButton />
     </div>
   );
 }

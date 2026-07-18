@@ -1,151 +1,234 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useCart } from '../context/CartContext'
-import { supabase, isSupabaseConfigured } from '../lib/supabaseClient'
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useCart } from "../context/CartContext";
+import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 
-const WHATSAPP_NUMBER = '5491100000000' // TODO: reemplazar por el número real del negocio
+const WHATSAPP_NUMBER = "5491127227613"; // TODO: reemplazar por el número real del negocio
 
 export default function Checkout() {
-  const { items, subtotal, shipping, total, clearCart } = useCart()
-  const navigate = useNavigate()
-  const [form, setForm] = useState({ name: '', phone: '', address: '', notes: '', payment: 'efectivo' })
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const { items, subtotal, shipping, total, clearCart } = useCart();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    address: "",
+    notes: "",
+    payment: "efectivo",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
+  const handleChange = (e) =>
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
   const buildWhatsappMessage = (orderId, amounts) => {
-    const lines = items.map((i) => `• ${i.qty} x ${i.name}`)
-    const { subtotal: sub, shipping: ship, total: tot } = amounts
+    const lines = items.map((i) => `• ${i.qty} x ${i.name}`);
+    const { subtotal: sub, shipping: ship, total: tot } = amounts;
     return encodeURIComponent(
-      `Hola! Quiero confirmar mi pedido${orderId ? ` #${orderId}` : ''}:\n\n${lines.join('\n')}\n\nSubtotal: $ ${sub.toLocaleString(
-        'es-AR',
-      )}\nEnvío: $ ${ship.toLocaleString('es-AR')}\nTotal: $ ${tot.toLocaleString('es-AR')}\n\nNombre: ${form.name}\nDirección: ${
+      `Hola! Quiero confirmar mi pedido${orderId ? ` #${orderId}` : ""}:\n\n${lines.join("\n")}\n\nSubtotal: $ ${sub.toLocaleString(
+        "es-AR",
+      )}\nEnvío: $ ${ship.toLocaleString("es-AR")}\nTotal: $ ${tot.toLocaleString("es-AR")}\n\nNombre: ${form.name}\nDirección: ${
         form.address
-      }\nPago: ${form.payment}${form.notes ? `\nNotas: ${form.notes}` : ''}`,
-    )
-  }
+      }\nPago: ${form.payment}${form.notes ? `\nNotas: ${form.notes}` : ""}`,
+    );
+  };
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (items.length === 0) return
-    setSubmitting(true)
-    setError('')
+    e.preventDefault();
+    if (items.length === 0) return;
+    setSubmitting(true);
+    setError("");
 
     try {
-      let orderId = null
+      let orderId = null;
       // Los montos "de verdad" (recalculados por el servidor) — no los del
       // carrito local, que el navegador podría haber alterado.
-      let amounts = { subtotal, shipping, total }
+      let amounts = { subtotal, shipping, total };
 
       if (isSupabaseConfigured) {
         // create_order recalcula los precios leyendo la tabla `products`
         // en el servidor: el navegador solo manda product_id + cantidad,
         // nunca el precio. Ver supabase/schema.sql.
-        const { data, error: rpcError } = await supabase.rpc('create_order', {
+        const { data, error: rpcError } = await supabase.rpc("create_order", {
           p_customer_name: form.name,
           p_customer_phone: form.phone,
           p_delivery_address: form.address,
           p_notes: form.notes,
           p_payment_method: form.payment,
           p_items: items.map((i) => ({ product_id: i.id, quantity: i.qty })),
-        })
+        });
 
-        if (rpcError) throw rpcError
-        orderId = data.order_id
-        amounts = { subtotal: Number(data.subtotal), shipping: Number(data.shipping), total: Number(data.total) }
+        if (rpcError) throw rpcError;
+        orderId = data.order_id;
+        amounts = {
+          subtotal: Number(data.subtotal),
+          shipping: Number(data.shipping),
+          total: Number(data.total),
+        };
       }
 
       // Pago con Mercado Pago: creamos la preferencia y redirigimos a Checkout Pro.
-      if (form.payment === 'mercadopago') {
+      if (form.payment === "mercadopago") {
         if (!orderId) {
-          throw new Error('Para pagar con Mercado Pago primero hay que conectar Supabase.')
+          throw new Error(
+            "Para pagar con Mercado Pago primero hay que conectar Supabase.",
+          );
         }
-        const res = await fetch('/api/create-preference', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch("/api/create-preference", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId }),
-        })
+        });
 
         // No usamos res.json() directo: si el servidor responde algo que
         // no es JSON (por ejemplo un error de Vercel, o el HTML de la
         // tienda si una regla de rewrite está mal configurada), queremos
         // un mensaje claro en vez de que explote con un error críptico.
-        const raw = await res.text()
-        let data
+        const raw = await res.text();
+        let data;
         try {
-          data = JSON.parse(raw)
+          data = JSON.parse(raw);
         } catch {
-          console.error('Respuesta no-JSON de /api/create-preference:', res.status, raw)
+          console.error(
+            "Respuesta no-JSON de /api/create-preference:",
+            res.status,
+            raw,
+          );
           throw new Error(
             `El servidor de pagos no respondió correctamente (código ${res.status}). Puede ser un problema temporal — probá de nuevo, y si sigue, revisá los logs de la función "create-preference" en Vercel.`,
-          )
+          );
         }
 
         if (!res.ok || !data.init_point) {
-          throw new Error(data.error || 'No se pudo iniciar el pago con Mercado Pago.')
+          throw new Error(
+            data.error || "No se pudo iniciar el pago con Mercado Pago.",
+          );
         }
-        clearCart()
-        window.location.href = data.init_point
-        return
+        clearCart();
+        window.location.href = data.init_point;
+        return;
       }
 
       // Pago en efectivo o transferencia: confirmamos por WhatsApp.
-      const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${buildWhatsappMessage(orderId, amounts)}`
-      clearCart()
-      window.open(waUrl, '_blank')
-      navigate('/', { state: { orderConfirmed: true } })
+      const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${buildWhatsappMessage(orderId, amounts)}`;
+      clearCart();
+      window.open(waUrl, "_blank");
+      navigate("/", { state: { orderConfirmed: true } });
     } catch (err) {
-      console.error(err)
-      setError(err.message || 'No pudimos registrar el pedido. Probá de nuevo en unos segundos.')
+      console.error(err);
+      setError(
+        err.message ||
+          "No pudimos registrar el pedido. Probá de nuevo en unos segundos.",
+      );
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   if (items.length === 0) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-20 text-center">
         <p className="text-slate-500">Tu carrito está vacío.</p>
       </div>
-    )
+    );
   }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
-      <h1 className="font-display font-800 text-2xl text-navy mb-6">Finalizar compra</h1>
+      <h1 className="font-display font-800 text-2xl text-navy mb-6">
+        Finalizar compra
+      </h1>
 
       <div className="grid md:grid-cols-3 gap-8">
-        <form onSubmit={handleSubmit} className="md:col-span-2 flex flex-col gap-4">
+        <form
+          onSubmit={handleSubmit}
+          className="md:col-span-2 flex flex-col gap-4"
+        >
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1">Nombre y apellido</label>
-            <input id="name" name="name" required value={form.name} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            <label
+              htmlFor="name"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Nombre y apellido
+            </label>
+            <input
+              id="name"
+              name="name"
+              required
+              value={form.name}
+              onChange={handleChange}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
           </div>
           <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
-            <input id="phone" name="phone" required value={form.phone} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            <label
+              htmlFor="phone"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Teléfono
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              required
+              value={form.phone}
+              onChange={handleChange}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
           </div>
           <div>
-            <label htmlFor="address" className="block text-sm font-medium text-slate-700 mb-1">Dirección de entrega</label>
-            <input id="address" name="address" required value={form.address} onChange={handleChange}
+            <label
+              htmlFor="address"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Dirección de entrega
+            </label>
+            <input
+              id="address"
+              name="address"
+              required
+              value={form.address}
+              onChange={handleChange}
               placeholder="Calle, número, piso/depto, referencia"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
           </div>
           <div>
-            <label htmlFor="payment" className="block text-sm font-medium text-slate-700 mb-1">Método de pago</label>
-            <select id="payment" name="payment" value={form.payment} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400">
+            <label
+              htmlFor="payment"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Método de pago
+            </label>
+            <select
+              id="payment"
+              name="payment"
+              value={form.payment}
+              onChange={handleChange}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            >
               <option value="efectivo">Efectivo al recibir</option>
               <option value="transferencia">Transferencia</option>
-              <option value="mercadopago">Mercado Pago (tarjeta, débito o dinero en cuenta)</option>
+              <option value="mercadopago">
+                Mercado Pago (tarjeta, débito o dinero en cuenta)
+              </option>
             </select>
           </div>
           <div>
-            <label htmlFor="notes" className="block text-sm font-medium text-slate-700 mb-1">Notas para el repartidor (opcional)</label>
-            <textarea id="notes" name="notes" value={form.notes} onChange={handleChange} rows={3}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            <label
+              htmlFor="notes"
+              className="block text-sm font-medium text-slate-700 mb-1"
+            >
+              Notas para el repartidor (opcional)
+            </label>
+            <textarea
+              id="notes"
+              name="notes"
+              value={form.notes}
+              onChange={handleChange}
+              rows={3}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
           </div>
 
           {error && <p className="text-red-500 text-sm">{error}</p>}
@@ -156,14 +239,16 @@ export default function Checkout() {
             className="bg-brand-500 hover:bg-brand-600 disabled:opacity-60 transition-colors text-white font-semibold px-6 py-3 rounded-lg"
           >
             {submitting
-              ? 'Procesando...'
-              : form.payment === 'mercadopago'
-              ? 'Ir a pagar con Mercado Pago'
-              : 'Confirmar pedido por WhatsApp'}
+              ? "Procesando..."
+              : form.payment === "mercadopago"
+                ? "Ir a pagar con Mercado Pago"
+                : "Confirmar pedido por WhatsApp"}
           </button>
           {!isSupabaseConfigured && (
             <p className="text-xs text-slate-400">
-              Nota: Supabase todavía no está conectado, así que este pedido solo se envía por WhatsApp y no queda guardado en la base de datos. El pago con Mercado Pago necesita Supabase conectado.
+              Nota: Supabase todavía no está conectado, así que este pedido solo
+              se envía por WhatsApp y no queda guardado en la base de datos. El
+              pago con Mercado Pago necesita Supabase conectado.
             </p>
           )}
         </form>
@@ -173,25 +258,31 @@ export default function Checkout() {
           <ul className="text-sm text-slate-600 flex flex-col gap-1 mb-4">
             {items.map((i) => (
               <li key={i.id} className="flex justify-between">
-                <span>{i.qty} x {i.name}</span>
-                <span>$ {(i.price * i.qty).toLocaleString('es-AR')}</span>
+                <span>
+                  {i.qty} x {i.name}
+                </span>
+                <span>$ {(i.price * i.qty).toLocaleString("es-AR")}</span>
               </li>
             ))}
           </ul>
           <div className="flex justify-between text-sm text-slate-600 mb-1">
             <span>Subtotal</span>
-            <span>$ {subtotal.toLocaleString('es-AR')}</span>
+            <span>$ {subtotal.toLocaleString("es-AR")}</span>
           </div>
           <div className="flex justify-between text-sm text-slate-600 mb-1">
             <span>Envío</span>
-            <span>{shipping === 0 ? 'Gratis' : `$ ${shipping.toLocaleString('es-AR')}`}</span>
+            <span>
+              {shipping === 0
+                ? "Gratis"
+                : `$ ${shipping.toLocaleString("es-AR")}`}
+            </span>
           </div>
           <div className="flex justify-between font-display font-800 text-navy text-lg border-t border-slate-100 mt-3 pt-3">
             <span>Total</span>
-            <span>$ {total.toLocaleString('es-AR')}</span>
+            <span>$ {total.toLocaleString("es-AR")}</span>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }
