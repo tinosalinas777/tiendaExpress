@@ -33,9 +33,6 @@ export default function Benefits() {
               className="w-full aspect-[4/3] object-cover rounded-xl shadow-card"
             />
             <div className="flex items-center gap-3 mt-3">
-              <span className="w-11 h-11 rounded-full bg-brand-50 grid place-items-center text-xl shrink-0">
-                {b.icon}
-              </span>
               <div>
                 <p className="font-semibold text-navy text-sm">{b.title}</p>
                 <p className="text-slate-500 text-xs">{b.text}</p>
