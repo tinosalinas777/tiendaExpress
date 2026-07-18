@@ -21,10 +21,12 @@ export default function Shop() {
 
   useEffect(() => {
     setLoading(true);
-    fetchProducts({ categoryId: activeCategory, search }).then((data) => {
-      setProducts(data);
-      setLoading(false);
-    });
+    fetchProducts({ categoryId: activeCategory, search, onOffer }).then(
+      (data) => {
+        setProducts(data);
+        setLoading(false);
+      },
+    );
   }, [activeCategory, search, onOffer]);
 
   return (
