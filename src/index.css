@@ -7,11 +7,13 @@ html {
 }
 
 body {
-  @apply font-body text-slate-800 bg-white antialiased;
+  @apply font-body text-slate-800 bg-slate-50 antialiased;
 }
 
-h1, h2, h3 {
-  font-family: 'Sora', sans-serif;
+h1,
+h2,
+h3 {
+  font-family: "Sora", sans-serif;
 }
 
 /* visible focus rings for keyboard users */
@@ -19,7 +21,7 @@ a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 select:focus-visible {
-  outline: 2px solid #2F6FED;
+  outline: 2px solid #2f6fed;
   outline-offset: 2px;
 }
 
