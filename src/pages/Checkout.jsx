@@ -66,7 +66,22 @@ export default function Checkout() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ orderId }),
         })
-        const data = await res.json()
+
+        // No usamos res.json() directo: si el servidor responde algo que
+        // no es JSON (por ejemplo un error de Vercel, o el HTML de la
+        // tienda si una regla de rewrite está mal configurada), queremos
+        // un mensaje claro en vez de que explote con un error críptico.
+        const raw = await res.text()
+        let data
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          console.error('Respuesta no-JSON de /api/create-preference:', res.status, raw)
+          throw new Error(
+            `El servidor de pagos no respondió correctamente (código ${res.status}). Puede ser un problema temporal — probá de nuevo, y si sigue, revisá los logs de la función "create-preference" en Vercel.`,
+          )
+        }
+
         if (!res.ok || !data.init_point) {
           throw new Error(data.error || 'No se pudo iniciar el pago con Mercado Pago.')
         }

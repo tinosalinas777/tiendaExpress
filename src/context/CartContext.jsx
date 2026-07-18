@@ -23,7 +23,7 @@ export function CartProvider({ children }) {
       if (existing) {
         return prev.map((i) => (i.id === product.id ? { ...i, qty: i.qty + qty } : i))
       }
-      return [...prev, { id: product.id, name: product.name, price: product.price, unit: product.unit, icon: product.icon, qty }]
+      return [...prev, { id: product.id, name: product.name, price: product.price, unit: product.unit, icon: product.icon, image_url: product.image_url, qty }]
     })
   }
 
