@@ -7,7 +7,7 @@ html {
 }
 
 body {
-  @apply font-body text-slate-800 bg-slate-50 antialiased;
+  @apply font-body text-slate-800 bg-slate-200 antialiased;
 }
 
 h1,

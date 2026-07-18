@@ -2,7 +2,78 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 
 const EMPTY_FORM = { name: '', category_id: '', price: '', unit: 'un', stock: '', icon: '🛒', badge: '', active: true, image_url: '' }
-const MAX_IMAGE_MB = 3
+// Límite generoso: la foto se comprime y redimensiona ANTES de subirla
+// (ver compressImage), así que una foto de 6-8MB del celu tranquilamente
+// termina pesando unos cientos de KB una vez optimizada.
+const MAX_RAW_IMAGE_MB = 8
+const MAX_WIDTH = 1400
+const MAX_HEIGHT = 1400
+const WEBP_QUALITY = 0.82
+
+// Algunos formatos (como .jfif) no siempre se identifican bien por
+// file.type en el navegador — por eso validamos también por extensión.
+const KNOWN_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'gif', 'avif', 'heic', 'heif']
+
+// Redimensiona y convierte la imagen a WebP del lado del navegador antes
+// de subirla a Supabase Storage. Si algo falla o el navegador no soporta
+// WebP, devuelve el archivo original tal cual (nunca bloquea la subida).
+async function compressImage(file) {
+  // No tocamos GIFs (podrían ser animados) ni SVGs (son vectoriales).
+  if (file.type === 'image/gif' || file.name.toLowerCase().endsWith('.svg')) {
+    return file
+  }
+
+  try {
+    const source = await loadImageSource(file)
+    if (!source) return file
+
+    let { width, height } = getSourceSize(source)
+    if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+      const ratio = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height)
+      width = Math.round(width * ratio)
+      height = Math.round(height * ratio)
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(source, 0, 0, width, height)
+
+    const supportsWebp = canvas.toDataURL('image/webp').startsWith('data:image/webp')
+    const outputType = supportsWebp ? 'image/webp' : 'image/jpeg'
+    const outputExt = supportsWebp ? 'webp' : 'jpg'
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, outputType, WEBP_QUALITY))
+    if (!blob) return file
+
+    const baseName = file.name.replace(/\.[^.]+$/, '')
+    return new File([blob], `${baseName}.${outputExt}`, { type: outputType })
+  } catch (err) {
+    console.warn('No se pudo optimizar la imagen, se sube el archivo original:', err)
+    return file
+  }
+}
+
+function loadImageSource(file) {
+  if (window.createImageBitmap) {
+    return createImageBitmap(file).catch(() => loadImageViaElement(file))
+  }
+  return loadImageViaElement(file)
+}
+
+function loadImageViaElement(file) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+function getSourceSize(source) {
+  return { width: source.width, height: source.height }
+}
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -14,6 +85,7 @@ export default function AdminProducts() {
   const [error, setError] = useState('')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
+  const [compressingImage, setCompressingImage] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
 
   const load = async () => {
@@ -36,24 +108,31 @@ export default function AdminProducts() {
     setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }))
   }
 
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     setError('')
 
-    if (!file.type.startsWith('image/')) {
-      setError('El archivo tiene que ser una imagen (jpg, png, webp).')
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    const looksLikeImage = file.type.startsWith('image/') || KNOWN_IMAGE_EXTENSIONS.includes(ext)
+
+    if (!looksLikeImage) {
+      setError('El archivo tiene que ser una imagen (jpg, jfif, png, webp, etc).')
       e.target.value = ''
       return
     }
-    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
-      setError(`La imagen no puede pesar más de ${MAX_IMAGE_MB}MB.`)
+    if (file.size > MAX_RAW_IMAGE_MB * 1024 * 1024) {
+      setError(`La imagen no puede pesar más de ${MAX_RAW_IMAGE_MB}MB.`)
       e.target.value = ''
       return
     }
 
-    setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    setCompressingImage(true)
+    const optimized = await compressImage(file)
+    setCompressingImage(false)
+
+    setImageFile(optimized)
+    setImagePreview(URL.createObjectURL(optimized))
   }
 
   const removeImage = () => {
@@ -95,9 +174,10 @@ export default function AdminProducts() {
 
     let imageUrl = form.image_url || null
 
-    // Si el admin eligió un archivo nuevo, lo subimos a Supabase Storage
-    // (bucket "product-images", público de solo-lectura) antes de guardar
-    // el producto, y usamos la URL pública resultante.
+    // Si el admin eligió un archivo nuevo, ya viene optimizado (WebP,
+    // redimensionado) desde handleImageChange. Lo subimos a Supabase
+    // Storage con el content-type correcto (no confiamos en lo que haya
+    // detectado el navegador del archivo original).
     if (imageFile) {
       setUploadingImage(true)
       const ext = imageFile.name.split('.').pop().toLowerCase()
@@ -105,7 +185,7 @@ export default function AdminProducts() {
 
       const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(path, imageFile, { cacheControl: '3600', upsert: false })
+        .upload(path, imageFile, { cacheControl: '3600', upsert: false, contentType: imageFile.type })
 
       setUploadingImage(false)
 
@@ -159,6 +239,8 @@ export default function AdminProducts() {
     load()
   }
 
+  const busy = saving || uploadingImage || compressingImage
+
   return (
     <div className="p-6 md:p-8">
       <h1 className="font-display font-800 text-2xl text-navy mb-6">Productos</h1>
@@ -171,7 +253,12 @@ export default function AdminProducts() {
         <div className="flex flex-col sm:flex-row gap-5 mb-4">
           <div className="shrink-0">
             <label className="block text-sm font-medium text-slate-700 mb-1">Foto del producto</label>
-            <div className="w-28 h-28 rounded-lg bg-slate-50 border border-slate-200 grid place-items-center overflow-hidden">
+            <div className="w-28 h-28 rounded-lg bg-slate-50 border border-slate-200 grid place-items-center overflow-hidden relative">
+              {compressingImage && (
+                <span className="absolute inset-0 bg-white/70 grid place-items-center text-xs text-slate-500">
+                  Optimizando...
+                </span>
+              )}
               {imagePreview ? (
                 <img src={imagePreview} alt="Vista previa" className="w-full h-full object-cover" />
               ) : (
@@ -181,7 +268,7 @@ export default function AdminProducts() {
             <div className="flex flex-col gap-1 mt-2">
               <label className="text-xs font-medium text-brand-500 cursor-pointer hover:underline">
                 {imagePreview ? 'Cambiar foto' : 'Subir foto'}
-                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                <input type="file" accept="image/*,.jfif,.heic,.heif" onChange={handleImageChange} className="hidden" />
               </label>
               {imagePreview && (
                 <button type="button" onClick={removeImage} className="text-xs font-medium text-slate-400 hover:text-red-500 text-left">
@@ -247,9 +334,17 @@ export default function AdminProducts() {
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
 
         <div className="flex items-center gap-3 mt-5">
-          <button type="submit" disabled={saving}
+          <button type="submit" disabled={busy}
             className="bg-brand-500 hover:bg-brand-600 disabled:opacity-60 transition-colors text-white font-semibold px-6 py-2.5 rounded-lg">
-            {uploadingImage ? 'Subiendo foto...' : saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Agregar producto'}
+            {compressingImage
+              ? 'Optimizando imagen...'
+              : uploadingImage
+              ? 'Subiendo foto...'
+              : saving
+              ? 'Guardando...'
+              : editingId
+              ? 'Guardar cambios'
+              : 'Agregar producto'}
           </button>
           {editingId && (
             <button type="button" onClick={cancelEdit} className="text-slate-500 text-sm font-medium hover:text-navy">

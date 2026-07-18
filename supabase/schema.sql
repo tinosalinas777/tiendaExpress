@@ -65,6 +65,18 @@ create table if not exists admin_users (
   created_at timestamptz default now()
 );
 
+-- 6) Reseñas de productos (calificación real de clientes)
+create table if not exists product_reviews (
+  id bigint generated always as identity primary key,
+  product_id bigint not null references products(id) on delete cascade,
+  customer_name text not null,
+  rating integer not null check (rating between 1 and 5),
+  comment text,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_reviews_product on product_reviews(product_id);
+
 -- =========================================================
 -- Migración (solo si ya habías corrido este schema.sql antes): estos
 -- comandos son seguros de re-ejecutar, no pisan datos existentes.
@@ -296,6 +308,70 @@ create policy "Admins pueden borrar fotos de productos"
     bucket_id = 'product-images'
     and exists (select 1 from admin_users a where a.user_id = auth.uid())
   );
+
+-- =========================================================
+-- Reseñas de productos
+-- =========================================================
+alter table product_reviews enable row level security;
+
+drop policy if exists "Reseñas visibles para todos" on product_reviews;
+drop policy if exists "Cualquiera puede dejar una reseña" on product_reviews;
+drop policy if exists "Admins pueden borrar reseñas" on product_reviews;
+
+-- Cualquiera puede leer las reseñas (se muestran en la página del producto).
+create policy "Reseñas visibles para todos"
+  on product_reviews for select
+  using (true);
+
+-- Cualquiera puede dejar una reseña (no exigimos login para no complicar
+-- la compra), pero validamos que traiga nombre y que el comentario no sea
+-- gigante. No hay policy de update/delete pública: una vez publicada, un
+-- cliente no puede editar ni borrar reseñas ajenas ni propias.
+create policy "Cualquiera puede dejar una reseña"
+  on product_reviews for insert
+  with check (
+    char_length(trim(customer_name)) > 0
+    and char_length(coalesce(comment, '')) <= 500
+  );
+
+-- Los admins sí pueden borrar una reseña (por ejemplo, si es spam o
+-- contenido inapropiado) desde el SQL Editor o, más adelante, desde un
+-- panel de moderación.
+create policy "Admins pueden borrar reseñas"
+  on product_reviews for delete
+  using (exists (select 1 from admin_users a where a.user_id = auth.uid()));
+
+-- Trigger: cada vez que se agrega, edita o borra una reseña, recalculamos
+-- el promedio (`rating`) y el total (`reviews`) del producto. Así el
+-- listado de la tienda (que lee esas dos columnas directo de `products`
+-- para no tener que sumar reseñas en cada carga) siempre está al día.
+create or replace function update_product_rating()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_product_id bigint;
+begin
+  v_product_id := coalesce(new.product_id, old.product_id);
+
+  update products
+    set rating = coalesce(
+          (select round(avg(rating)::numeric, 1) from product_reviews where product_id = v_product_id),
+          0
+        ),
+        reviews = (select count(*) from product_reviews where product_id = v_product_id)
+    where id = v_product_id;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists trg_update_product_rating on product_reviews;
+create trigger trg_update_product_rating
+  after insert or update or delete on product_reviews
+  for each row execute function update_product_rating();
 
 -- =========================================================
 -- Datos de ejemplo (opcional, podés borrar esta sección)

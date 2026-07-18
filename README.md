@@ -156,8 +156,16 @@ Ese bucket y sus permisos ya se crean solos al correr `supabase/schema.sql`
 2. Volvé a correr `supabase/schema.sql` completo para que se apliquen las
    políticas (solo los admins pueden subir/borrar, cualquiera puede ver).
 
-Formatos aceptados: jpg, png, webp. Tamaño máximo: 3MB por imagen (se puede
-ajustar la constante `MAX_IMAGE_MB` en `src/pages/admin/Products.jsx`).
+Formatos aceptados: jpg, jfif, png, webp, heic y otros formatos de imagen
+comunes. Tamaño máximo del archivo original: 8MB.
+
+**Optimización automática:** antes de subir la foto, el navegador la
+redimensiona (máximo 1400x1400px) y la convierte a WebP con calidad 82%
+—así una foto de varios MB sacada con el celular termina pesando algunos
+cientos de KB, sin que tengas que convertir nada a mano. Si el navegador
+no soporta WebP, se guarda como JPEG optimizado igual. Se puede ajustar
+tocando las constantes `MAX_WIDTH`, `MAX_HEIGHT` y `WEBP_QUALITY` en
+`src/pages/admin/Products.jsx`.
 
 ## 7. Integrar Mercado Pago
 

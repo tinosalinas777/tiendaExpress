@@ -29,6 +29,30 @@ export async function fetchProductById(id) {
   return data
 }
 
+export async function fetchProductReviews(productId) {
+  if (!isSupabaseConfigured) return []
+  const { data, error } = await supabase
+    .from('product_reviews')
+    .select('*')
+    .eq('product_id', productId)
+    .order('created_at', { ascending: false })
+  if (error || !data) return []
+  return data
+}
+
+export async function submitProductReview({ productId, customerName, rating, comment }) {
+  if (!isSupabaseConfigured) {
+    throw new Error('Supabase no está conectado todavía, no se puede guardar la reseña.')
+  }
+  const { error } = await supabase.from('product_reviews').insert({
+    product_id: productId,
+    customer_name: customerName,
+    rating,
+    comment: comment || null,
+  })
+  if (error) throw error
+}
+
 function filterMock(list, { categoryId, search }) {
   let result = list
   if (categoryId) result = result.filter((p) => p.category_id === categoryId)
