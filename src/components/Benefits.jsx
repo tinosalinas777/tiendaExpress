@@ -1,21 +1,21 @@
 const benefits = [
   {
-    image: "/moto.jpg",
+    image: "/delivery.jpg",
     title: "Reparto en moto",
     text: "Envíos rápidos por el barrio",
   },
   {
-    image: "/frescos.jpg",
+    image: "/fresco.png",
     title: "Productos frescos",
     text: "Seleccionados todos los días",
   },
   {
-    image: "/pagos.jpg",
+    image: "/pagos.png",
     title: "Varios medios de pago",
     text: "Tarjeta, transferencia o efectivo",
   },
   {
-    image: "/atencion.jpg",
+    image: "/atencion.png",
     title: "Atención personalizada",
     text: "Te ayudamos por WhatsApp",
   },
