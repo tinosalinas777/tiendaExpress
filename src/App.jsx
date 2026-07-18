@@ -6,7 +6,6 @@ import AdminLogin from "./pages/admin/Login";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
 import AdminProducts from "./pages/admin/Products";
-import { Analytics } from "@vercel/analytics/react";
 
 export default function App() {
   return (
@@ -25,7 +24,6 @@ export default function App() {
         <Route path="productos" element={<AdminProducts />} />
       </Route>
       <Route path="/*" element={<StoreLayout />} />
-      <Analytics />
     </Routes>
   );
 }
