@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 
-const EMPTY_FORM = { name: '', category_id: '', price: '', unit: 'un', stock: '', icon: '🛒', badge: '', active: true }
+const EMPTY_FORM = { name: '', category_id: '', price: '', unit: 'un', stock: '', icon: '🛒', badge: '', active: true, image_url: '' }
+const MAX_IMAGE_MB = 3
 
 export default function AdminProducts() {
   const [products, setProducts] = useState([])
@@ -11,6 +12,9 @@ export default function AdminProducts() {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -32,6 +36,32 @@ export default function AdminProducts() {
     setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }))
   }
 
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError('')
+
+    if (!file.type.startsWith('image/')) {
+      setError('El archivo tiene que ser una imagen (jpg, png, webp).')
+      e.target.value = ''
+      return
+    }
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      setError(`La imagen no puede pesar más de ${MAX_IMAGE_MB}MB.`)
+      e.target.value = ''
+      return
+    }
+
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const removeImage = () => {
+    setImageFile(null)
+    setImagePreview(null)
+    setForm((f) => ({ ...f, image_url: '' }))
+  }
+
   const startEdit = (p) => {
     setEditingId(p.id)
     setForm({
@@ -43,13 +73,18 @@ export default function AdminProducts() {
       icon: p.icon || '🛒',
       badge: p.badge || '',
       active: p.active,
+      image_url: p.image_url || '',
     })
+    setImageFile(null)
+    setImagePreview(p.image_url || null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const cancelEdit = () => {
     setEditingId(null)
     setForm(EMPTY_FORM)
+    setImageFile(null)
+    setImagePreview(null)
     setError('')
   }
 
@@ -57,6 +92,36 @@ export default function AdminProducts() {
     e.preventDefault()
     setSaving(true)
     setError('')
+
+    let imageUrl = form.image_url || null
+
+    // Si el admin eligió un archivo nuevo, lo subimos a Supabase Storage
+    // (bucket "product-images", público de solo-lectura) antes de guardar
+    // el producto, y usamos la URL pública resultante.
+    if (imageFile) {
+      setUploadingImage(true)
+      const ext = imageFile.name.split('.').pop().toLowerCase()
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(path, imageFile, { cacheControl: '3600', upsert: false })
+
+      setUploadingImage(false)
+
+      if (uploadError) {
+        setSaving(false)
+        setError(
+          'No se pudo subir la imagen. ' +
+            uploadError.message +
+            ' (revisá que hayas creado el bucket "product-images" — ver README).',
+        )
+        return
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('product-images').getPublicUrl(path)
+      imageUrl = publicUrlData.publicUrl
+    }
 
     const payload = {
       name: form.name,
@@ -67,6 +132,7 @@ export default function AdminProducts() {
       icon: form.icon,
       badge: form.badge || null,
       active: form.active,
+      image_url: imageUrl,
     }
 
     const { error } = editingId
@@ -101,29 +167,62 @@ export default function AdminProducts() {
         <h2 className="font-display font-700 text-navy mb-4">
           {editingId ? `Editando producto #${editingId}` : 'Agregar producto nuevo'}
         </h2>
+
+        <div className="flex flex-col sm:flex-row gap-5 mb-4">
+          <div className="shrink-0">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Foto del producto</label>
+            <div className="w-28 h-28 rounded-lg bg-slate-50 border border-slate-200 grid place-items-center overflow-hidden">
+              {imagePreview ? (
+                <img src={imagePreview} alt="Vista previa" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-4xl">{form.icon || '🛒'}</span>
+              )}
+            </div>
+            <div className="flex flex-col gap-1 mt-2">
+              <label className="text-xs font-medium text-brand-500 cursor-pointer hover:underline">
+                {imagePreview ? 'Cambiar foto' : 'Subir foto'}
+                <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              </label>
+              {imagePreview && (
+                <button type="button" onClick={removeImage} className="text-xs font-medium text-slate-400 hover:text-red-500 text-left">
+                  Quitar foto (usar ícono)
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 flex-1">
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+              <input name="name" required value={form.name} onChange={handleChange}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
+              <select name="category_id" value={form.category_id} onChange={handleChange}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400">
+                <option value="">Sin categoría</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label>
+              <select name="unit" value={form.unit} onChange={handleChange}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400">
+                <option value="un">Unidad</option>
+                <option value="kg">Kilo</option>
+                <option value="lt">Litro</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Ícono (emoji, si no subís foto)</label>
+              <input name="icon" value={form.icon} onChange={handleChange}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+          </div>
+        </div>
+
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="lg:col-span-2">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
-            <input name="name" required value={form.name} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Categoría</label>
-            <select name="category_id" value={form.category_id} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400">
-              <option value="">Sin categoría</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Unidad</label>
-            <select name="unit" value={form.unit} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400">
-              <option value="un">Unidad</option>
-              <option value="kg">Kilo</option>
-              <option value="lt">Litro</option>
-            </select>
-          </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Precio</label>
             <input name="price" type="number" step="0.01" min="0" required value={form.price} onChange={handleChange}
@@ -132,11 +231,6 @@ export default function AdminProducts() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Stock</label>
             <input name="stock" type="number" min="0" required value={form.stock} onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Ícono (emoji)</label>
-            <input name="icon" value={form.icon} onChange={handleChange}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400" />
           </div>
           <div>
@@ -155,7 +249,7 @@ export default function AdminProducts() {
         <div className="flex items-center gap-3 mt-5">
           <button type="submit" disabled={saving}
             className="bg-brand-500 hover:bg-brand-600 disabled:opacity-60 transition-colors text-white font-semibold px-6 py-2.5 rounded-lg">
-            {saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Agregar producto'}
+            {uploadingImage ? 'Subiendo foto...' : saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Agregar producto'}
           </button>
           {editingId && (
             <button type="button" onClick={cancelEdit} className="text-slate-500 text-sm font-medium hover:text-navy">
@@ -184,7 +278,14 @@ export default function AdminProducts() {
               {products.map((p) => (
                 <tr key={p.id} className={!p.active ? 'opacity-50' : ''}>
                   <td className="px-4 py-3 flex items-center gap-2 whitespace-nowrap">
-                    <span>{p.icon}</span> {p.name}
+                    <span className="w-8 h-8 rounded bg-slate-50 grid place-items-center overflow-hidden shrink-0">
+                      {p.image_url ? (
+                        <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{p.icon}</span>
+                      )}
+                    </span>
+                    {p.name}
                   </td>
                   <td className="px-4 py-3 text-slate-500">{categories.find((c) => c.id === p.category_id)?.name || '—'}</td>
                   <td className="px-4 py-3">$ {Number(p.price).toLocaleString('es-AR')}</td>

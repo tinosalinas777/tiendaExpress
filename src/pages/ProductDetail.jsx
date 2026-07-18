@@ -31,8 +31,12 @@ export default function ProductDetail() {
       </Link>
 
       <div className="mt-6 grid md:grid-cols-2 gap-10">
-        <div className="aspect-square bg-slate-50 rounded-2xl grid place-items-center text-8xl">
-          {product.icon || '🛒'}
+        <div className="aspect-square bg-slate-50 rounded-2xl grid place-items-center text-8xl overflow-hidden">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+          ) : (
+            product.icon || '🛒'
+          )}
         </div>
 
         <div>

@@ -141,6 +141,24 @@ notificaciones falsas que sólo generan trabajo de más al servidor.
   configuraste `MP_WEBHOOK_SECRET`) y compara el monto pagado contra el total
   del pedido antes de marcarlo como aprobado.
 
+## 6. Fotos de productos
+
+Desde `/admin/productos` podés subir una foto real para cada producto (además
+del emoji, que queda como respaldo si el producto no tiene foto todavía). Las
+imágenes se guardan en **Supabase Storage**, en un bucket público de solo
+lectura llamado `product-images`.
+
+Ese bucket y sus permisos ya se crean solos al correr `supabase/schema.sql`
+(sección "Storage: fotos de productos"). Si por algún motivo no se creó
+(por ejemplo, corriste una versión vieja del script), podés armarlo a mano:
+
+1. **Storage** → **New bucket** → nombre `product-images`, marcalo como **Public**.
+2. Volvé a correr `supabase/schema.sql` completo para que se apliquen las
+   políticas (solo los admins pueden subir/borrar, cualquiera puede ver).
+
+Formatos aceptados: jpg, png, webp. Tamaño máximo: 3MB por imagen (se puede
+ajustar la constante `MAX_IMAGE_MB` en `src/pages/admin/Products.jsx`).
+
 ## 7. Integrar Mercado Pago
 
 El checkout deja elegir entre **efectivo/transferencia** (se confirma por WhatsApp,
@@ -236,9 +254,6 @@ lleva directo a `/admin`.
 
 ## Próximos pasos sugeridos
 
-- **Fotos reales de productos**: subilas a Supabase Storage y guardá la URL en la
-  columna `image_url` de `products`; el componente `ProductCard` se puede adaptar
-  fácilmente para mostrar `image_url` en vez del ícono.
 - **Panel de administración**: una pantalla protegida con Supabase Auth para que
   el dueño actualice stock, precios y vea el estado de los pedidos.
 - **Notificación al repartidor**: conectar el evento de "nuevo pedido" con

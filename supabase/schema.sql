@@ -255,6 +255,49 @@ $$;
 grant execute on function create_order(text, text, text, text, text, jsonb) to anon, authenticated;
 
 -- =========================================================
+-- Storage: fotos de productos
+-- Bucket público de solo-lectura (cualquiera puede VER las fotos, como
+-- corresponde a una tienda), pero solo los admins pueden subir/borrar.
+-- =========================================================
+insert into storage.buckets (id, name, public)
+values ('product-images', 'product-images', true)
+on conflict (id) do nothing;
+
+drop policy if exists "Fotos de productos son públicas" on storage.objects;
+drop policy if exists "Admins pueden subir fotos de productos" on storage.objects;
+drop policy if exists "Admins pueden actualizar fotos de productos" on storage.objects;
+drop policy if exists "Admins pueden borrar fotos de productos" on storage.objects;
+
+create policy "Fotos de productos son públicas"
+  on storage.objects for select
+  using (bucket_id = 'product-images');
+
+create policy "Admins pueden subir fotos de productos"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'product-images'
+    and exists (select 1 from admin_users a where a.user_id = auth.uid())
+  );
+
+create policy "Admins pueden actualizar fotos de productos"
+  on storage.objects for update
+  using (
+    bucket_id = 'product-images'
+    and exists (select 1 from admin_users a where a.user_id = auth.uid())
+  )
+  with check (
+    bucket_id = 'product-images'
+    and exists (select 1 from admin_users a where a.user_id = auth.uid())
+  );
+
+create policy "Admins pueden borrar fotos de productos"
+  on storage.objects for delete
+  using (
+    bucket_id = 'product-images'
+    and exists (select 1 from admin_users a where a.user_id = auth.uid())
+  );
+
+-- =========================================================
 -- Datos de ejemplo (opcional, podés borrar esta sección)
 -- Están armados para no duplicarse si volvés a correr este script.
 -- =========================================================

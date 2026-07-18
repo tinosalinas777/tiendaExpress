@@ -6,13 +6,17 @@ export default function ProductCard({ product }) {
 
   return (
     <div className="bg-white rounded-xl border border-slate-100 shadow-card hover:shadow-cardHover transition-shadow flex flex-col">
-      <Link to={`/producto/${product.id}`} className="relative aspect-square bg-slate-50 rounded-t-xl grid place-items-center text-5xl">
+      <Link to={`/producto/${product.id}`} className="relative aspect-square bg-slate-50 rounded-t-xl grid place-items-center text-5xl overflow-hidden">
         {product.badge && (
-          <span className="absolute top-2 left-2 bg-fresh-500 text-white text-[11px] font-semibold px-2 py-1 rounded-md">
+          <span className="absolute top-2 left-2 bg-fresh-500 text-white text-[11px] font-semibold px-2 py-1 rounded-md z-10">
             {product.badge}
           </span>
         )}
-        <span aria-hidden="true">{product.icon || '🛒'}</span>
+        {product.image_url ? (
+          <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+        ) : (
+          <span aria-hidden="true">{product.icon || '🛒'}</span>
+        )}
       </Link>
       <div className="p-3 flex flex-col gap-1 flex-1">
         <Link to={`/producto/${product.id}`} className="text-sm font-medium text-navy hover:text-brand-500 line-clamp-2">
