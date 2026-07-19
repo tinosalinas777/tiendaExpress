@@ -13,7 +13,7 @@ export function buildWhatsappLink(message = "") {
 // Este es TU número de WhatsApp (el desarrollador/revendedor), no el del
 // negocio — es a donde te llega el aviso cuando el cliente dice "ya
 // transferí". Va a ser distinto en cada tienda que repliques.
-export const DEVELOPER_WHATSAPP_NUMBER = "5491100000000"; // <- PONÉ ACÁ TU NÚMERO REAL
+export const DEVELOPER_WHATSAPP_NUMBER = "5491127227613"; // <- PONÉ ACÁ TU NÚMERO REAL
 
 export function buildDeveloperWhatsappLink(message = "") {
   return `https://wa.me/${DEVELOPER_WHATSAPP_NUMBER}${message ? `?text=${encodeURIComponent(message)}` : ""}`;
@@ -23,8 +23,8 @@ export function buildDeveloperWhatsappLink(message = "") {
 // se cobra vive en la tabla `subscription` de Supabase (columna `price`) —
 // esto es solo para mostrar los datos bancarios en la pantalla de pago.
 export const BANK_TRANSFER_DETAILS = {
-  titular: "Tu Nombre / Razón Social",
-  cbu: "0000000000000000000000",
-  alias: "tu.alias.mp",
-  banco: "Nombre del banco",
+  titular: "Cristian Damian Salinas",
+  cbu: "0000003100000360204786",
+  alias: "fuga.agites.pelo.mp",
+  banco: "Mercadopago",
 };
