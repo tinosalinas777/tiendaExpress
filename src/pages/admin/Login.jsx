@@ -26,8 +26,12 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm bg-white border border-slate-100 rounded-xl shadow-card p-6">
+    <div
+      className="min-h-screen grid place-items-center relative bg-cover bg-center px-4"
+      style={{ backgroundImage: "url('/fondoLogin.png')" }}
+    >
+      <div className="absolute inset-0 bg-navy/60" />
+      <div className="relative w-full max-w-sm bg-white border border-slate-100 rounded-xl shadow-card p-6">
         <div className="flex items-center gap-2 mb-6">
           <span className="w-9 h-9 rounded-lg bg-brand-500 text-white grid place-items-center font-display font-800 text-lg">
             A
