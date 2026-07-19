@@ -260,6 +260,102 @@ repetís el mismo paso 3 con su UUID.
 También hay un enlace discreto "Acceso administrador" al pie de la tienda que
 lleva directo a `/admin`.
 
+## 9. Suscripción mensual (cobrarle el servicio al dueño de la tienda)
+
+Si le das esta tienda a un cliente como un servicio pago mensual (vos sos el
+desarrollador, el dueño de la tienda te paga a vos), el panel tiene una
+sección `/admin/suscripcion` para que el propio dueño renueve su pago —
+con Mercado Pago o avisando que hizo una transferencia.
+
+### Cómo funciona
+
+- La tabla `subscription` (una sola fila, `id = 1`) guarda el plan, el
+  precio y hasta cuándo está paga la tienda (`current_period_end`).
+- Si la fecha venció, el panel bloquea **crear, editar, ocultar y eliminar
+  productos** — pero el dueño sigue pudiendo ver y actualizar el estado de
+  sus pedidos con normalidad, y la tienda pública nunca se cae.
+- El bloqueo no es solo visual: las políticas de seguridad (RLS) de
+  `products` chequean `is_subscription_active()` antes de permitir
+  insert/update/delete, así que no se puede saltear editando algo desde la
+  consola del navegador.
+- **Pago con Mercado Pago**: es manual (el dueño lo paga cada mes, no es
+  un débito automático). Al aprobarse, el webhook extiende
+  `current_period_end` un mes — desde la fecha de vencimiento actual si
+  todavía no venció, o desde hoy si ya estaba vencida (para que renovar
+  antes de tiempo no "pierda" días).
+- **Transferencia**: como no se puede verificar sola, el dueño aprieta
+  "Ya transferí, avisar" — eso le manda un WhatsApp a **tu** número (no al
+  de la tienda) y deja la suscripción en estado "pendiente de
+  verificación". Vos confirmás el pago a mano desde el SQL Editor de
+  Supabase:
+  ```sql
+  update subscription
+    set status = 'activa',
+        current_period_end = (current_date + interval '30 days')::date,
+        payment_method = 'transferencia',
+        last_payment_at = now()
+    where id = 1;
+  ```
+
+### ⚠️ Es una cuenta de Mercado Pago DISTINTA a la de la tienda
+
+Esto es lo más importante de configurar bien: el dinero de la suscripción
+tiene que caer en **tu** cuenta de Mercado Pago, no en la del supermercado
+— si no, el dueño terminaría pagándose la suscripción a sí mismo.
+
+Por eso este flujo usa una variable de entorno separada,
+`MP_DEVELOPER_ACCESS_TOKEN`, con el access token de **tu propia** cuenta y
+aplicación de Mercado Pago (no la del negocio, que sigue usando
+`MP_ACCESS_TOKEN` para cobrarles a sus propios clientes).
+
+**Pasos:**
+
+1. Entrá a [mercadopago.com.ar/developers/panel](https://www.mercadopago.com.ar/developers/panel)
+   pero esta vez **logueado con tu cuenta personal/de desarrollador**, no
+   con la del cliente.
+2. Creá una aplicación (o usá una que ya tengas) y copiá el **Access
+   Token** — arrancá con el de prueba (`TEST-...`) para probar el flujo
+   sin cobrar de verdad, y después cambiá al de producción.
+3. En Vercel → el proyecto de **este cliente** → Environment Variables,
+   agregá:
+   ```
+   MP_DEVELOPER_ACCESS_TOKEN=TEST-tu-access-token-de-tu-propia-cuenta
+   ```
+4. Redeployá.
+
+Como el mismo endpoint (`/api/mercadopago-webhook`) recibe notificaciones
+de las dos cuentas (la del negocio y la tuya), el webhook prueba primero
+con un token y, si esa cuenta no reconoce el pago, prueba con el otro —
+no hace falta que hagas nada extra para eso, ya está resuelto en el
+código (`fetchPayment` en `api/mercadopago-webhook.js`).
+
+### Qué configurar
+
+En `src/lib/config.js`:
+- `DEVELOPER_WHATSAPP_NUMBER`: tu número (no el del negocio), a donde te
+  llegan los avisos de transferencia.
+- `BANK_TRANSFER_DETAILS`: tus datos bancarios para mostrarle al cliente.
+
+El precio y nombre del plan se cargan en la tabla `subscription` — para
+cambiarlos:
+```sql
+update subscription set price = 20000, plan_name = 'Plan mensual' where id = 1;
+```
+
+### Si vas a replicar esto para otro cliente
+
+Sumá estos puntos a tu `checklist-replicar-tienda.pdf`:
+- `subscription` se crea sola al correr `schema.sql`, con 30 días gratis
+  desde el momento en que la corrés — ajustá el precio inicial con el
+  UPDATE de arriba.
+- `DEVELOPER_WHATSAPP_NUMBER`, `BANK_TRANSFER_DETAILS` y
+  `MP_DEVELOPER_ACCESS_TOKEN` son **tuyos** — se repiten igual en todos
+  los proyectos de todos tus clientes (a diferencia de `WHATSAPP_NUMBER`
+  y `MP_ACCESS_TOKEN`, que sí son del negocio y cambian en cada cliente).
+- `MP_DEVELOPER_ACCESS_TOKEN` es la única variable de entorno realmente
+  nueva que tenés que cargar en Vercel para esto — todo lo demás reutiliza
+  lo que ya tenías de Supabase y del Mercado Pago del negocio.
+
 ## Próximos pasos sugeridos
 
 - **Panel de administración**: una pantalla protegida con Supabase Auth para que

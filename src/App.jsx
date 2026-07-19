@@ -6,6 +6,7 @@ import AdminLogin from "./pages/admin/Login";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
 import AdminProducts from "./pages/admin/Products";
+import AdminSubscription from "./pages/admin/Subscription";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route index element={<AdminDashboard />} />
         <Route path="pedidos" element={<AdminOrders />} />
         <Route path="productos" element={<AdminProducts />} />
+        <Route path="suscripcion" element={<AdminSubscription />} />
       </Route>
       <Route path="/*" element={<StoreLayout />} />
     </Routes>

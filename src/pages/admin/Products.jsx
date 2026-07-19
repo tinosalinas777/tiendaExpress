@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
+import { useSubscription } from '../../context/SubscriptionContext'
 
 const EMPTY_FORM = { name: '', category_id: '', price: '', unit: 'un', stock: '', icon: '🛒', badge: '', active: true, image_url: '' }
 // Límite generoso: la foto se comprime y redimensiona ANTES de subirla
@@ -76,6 +77,7 @@ function getSourceSize(source) {
 }
 
 export default function AdminProducts() {
+  const { isExpired } = useSubscription()
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
@@ -169,6 +171,10 @@ export default function AdminProducts() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (isExpired) {
+      setError('Tu suscripción está vencida — renovala para poder guardar cambios en el catálogo.')
+      return
+    }
     setSaving(true)
     setError('')
 
@@ -229,17 +235,19 @@ export default function AdminProducts() {
   }
 
   const toggleActive = async (p) => {
+    if (isExpired) return
     await supabase.from('products').update({ active: !p.active }).eq('id', p.id)
     load()
   }
 
   const deleteProduct = async (p) => {
+    if (isExpired) return
     if (!confirm(`¿Eliminar "${p.name}" definitivamente? Esta acción no se puede deshacer.`)) return
     await supabase.from('products').delete().eq('id', p.id)
     load()
   }
 
-  const busy = saving || uploadingImage || compressingImage
+  const busy = saving || uploadingImage || compressingImage || isExpired
 
   return (
     <div className="p-6 md:p-8">
@@ -249,6 +257,13 @@ export default function AdminProducts() {
         <h2 className="font-display font-700 text-navy mb-4">
           {editingId ? `Editando producto #${editingId}` : 'Agregar producto nuevo'}
         </h2>
+
+        {isExpired && (
+          <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3 mb-4">
+            Tu suscripción está vencida — <a href="/admin/suscripcion" className="underline font-semibold">renovala acá</a> para
+            poder agregar, editar u ocultar productos. Mientras tanto podés seguir viendo tus pedidos con normalidad.
+          </p>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-5 mb-4">
           <div className="shrink-0">
@@ -336,7 +351,9 @@ export default function AdminProducts() {
         <div className="flex items-center gap-3 mt-5">
           <button type="submit" disabled={busy}
             className="bg-brand-500 hover:bg-brand-600 disabled:opacity-60 transition-colors text-white font-semibold px-6 py-2.5 rounded-lg">
-            {compressingImage
+            {isExpired
+              ? 'Renová tu suscripción para guardar'
+              : compressingImage
               ? 'Optimizando imagen...'
               : uploadingImage
               ? 'Subiendo foto...'
@@ -388,13 +405,29 @@ export default function AdminProducts() {
                     <span className={p.stock < 5 ? 'text-red-500 font-semibold' : ''}>{p.stock}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={() => toggleActive(p)} className="text-xs font-medium underline text-slate-500 hover:text-navy">
+                    <button
+                      onClick={() => toggleActive(p)}
+                      disabled={isExpired}
+                      className="text-xs font-medium underline text-slate-500 hover:text-navy disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                    >
                       {p.active ? 'Ocultar' : 'Mostrar'}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => startEdit(p)} className="text-brand-500 font-medium mr-3 hover:underline">Editar</button>
-                    <button onClick={() => deleteProduct(p)} className="text-red-500 font-medium hover:underline">Eliminar</button>
+                    <button
+                      onClick={() => !isExpired && startEdit(p)}
+                      disabled={isExpired}
+                      className="text-brand-500 font-medium mr-3 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => deleteProduct(p)}
+                      disabled={isExpired}
+                      className="text-red-500 font-medium hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                    >
+                      Eliminar
+                    </button>
                   </td>
                 </tr>
               ))}

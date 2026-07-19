@@ -77,6 +77,39 @@ create table if not exists product_reviews (
 
 create index if not exists idx_reviews_product on product_reviews(product_id);
 
+-- 7) Suscripción de esta tienda (servicio pago mensual al desarrollador)
+-- Fila única (singleton, siempre id=1): esta instalación es de UNA sola
+-- tienda, así que alcanza con una fila que representa "el estado de pago
+-- de este cliente". Si replicás el proyecto para otro cliente, esta misma
+-- tabla se crea de cero en SU proyecto de Supabase — no se comparte entre
+-- tiendas (ver checklist-replicar-tienda.pdf, cada tienda es independiente).
+create table if not exists subscription (
+  id int primary key default 1,
+  plan_name text not null default 'Plan mensual',
+  price numeric(10,2) not null default 15000,
+  status text not null default 'activa', -- activa | pendiente_verificacion
+  current_period_end date not null default (current_date + interval '30 days'),
+  payment_method text, -- mercadopago | transferencia
+  mp_payment_id text,
+  mp_preference_id text,
+  last_payment_at timestamptz,
+  updated_at timestamptz default now(),
+  constraint subscription_singleton check (id = 1)
+);
+
+insert into subscription (id) values (1) on conflict (id) do nothing;
+
+-- Función auxiliar que usan las políticas de abajo para saber si hay que
+-- bloquear la edición del catálogo. "stable" (no "immutable") porque
+-- depende de current_date, que cambia día a día.
+create or replace function is_subscription_active()
+returns boolean
+language sql
+stable
+as $$
+  select coalesce((select current_period_end >= current_date from subscription where id = 1), true);
+$$;
+
 -- =========================================================
 -- Migración (solo si ya habías corrido este schema.sql antes): estos
 -- comandos son seguros de re-ejecutar, no pisan datos existentes.
@@ -150,10 +183,43 @@ create policy "Admins pueden gestionar categorías"
   using (exists (select 1 from admin_users a where a.user_id = auth.uid()))
   with check (exists (select 1 from admin_users a where a.user_id = auth.uid()));
 
-create policy "Admins pueden gestionar productos"
-  on products for all
+-- Los productos son distintos: el bloqueo por suscripción vencida tiene que
+-- ser real, no solo un botón deshabilitado en la interfaz — si no, alguien
+-- con conocimientos técnicos podría saltearlo llamando a Supabase directo
+-- desde la consola del navegador. Por eso separamos SELECT (siempre
+-- permitido, así el panel puede seguir mostrando la lista) de
+-- INSERT/UPDATE/DELETE (solo si is_subscription_active() da true).
+drop policy if exists "Admins pueden gestionar productos" on products;
+drop policy if exists "Admins pueden ver productos (panel)" on products;
+drop policy if exists "Admins pueden crear productos si está al día" on products;
+drop policy if exists "Admins pueden editar productos si está al día" on products;
+drop policy if exists "Admins pueden eliminar productos si está al día" on products;
+
+create policy "Admins pueden ver productos (panel)"
+  on products for select
+  using (exists (select 1 from admin_users a where a.user_id = auth.uid()));
+
+create policy "Admins pueden crear productos si está al día"
+  on products for insert
+  with check (
+    exists (select 1 from admin_users a where a.user_id = auth.uid())
+    and is_subscription_active()
+  );
+
+create policy "Admins pueden editar productos si está al día"
+  on products for update
   using (exists (select 1 from admin_users a where a.user_id = auth.uid()))
-  with check (exists (select 1 from admin_users a where a.user_id = auth.uid()));
+  with check (
+    exists (select 1 from admin_users a where a.user_id = auth.uid())
+    and is_subscription_active()
+  );
+
+create policy "Admins pueden eliminar productos si está al día"
+  on products for delete
+  using (
+    exists (select 1 from admin_users a where a.user_id = auth.uid())
+    and is_subscription_active()
+  );
 
 create policy "Admins pueden ver pedidos"
   on orders for select
@@ -167,6 +233,47 @@ create policy "Admins pueden actualizar pedidos"
 create policy "Admins pueden ver items de pedidos"
   on order_items for select
   using (exists (select 1 from admin_users a where a.user_id = auth.uid()));
+
+-- =========================================================
+-- Suscripción: solo lectura para admins, nunca escritura directa
+-- =========================================================
+-- A propósito NO hay policy de UPDATE pública en `subscription`. Si la
+-- hubiera, el propio dueño de la tienda podría "aprobarse" su pago editando
+-- el estado desde el navegador. Los únicos que pueden cambiar el estado a
+-- "activa" son: (a) el webhook de Mercado Pago (usa la service role key,
+-- que se salta RLS), o (b) vos a mano desde el SQL Editor cuando confirmás
+-- una transferencia. Lo único que el propio admin puede hacer por su cuenta
+-- es avisar "ya transferí" (ver función request_subscription_verification).
+alter table subscription enable row level security;
+
+drop policy if exists "Admins pueden ver el estado de la suscripción" on subscription;
+create policy "Admins pueden ver el estado de la suscripción"
+  on subscription for select
+  using (exists (select 1 from admin_users a where a.user_id = auth.uid()));
+
+create or replace function request_subscription_verification(p_payment_method text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (select 1 from admin_users where user_id = auth.uid()) then
+    raise exception 'No autorizado';
+  end if;
+  if p_payment_method not in ('mercadopago', 'transferencia') then
+    raise exception 'Método de pago inválido';
+  end if;
+
+  update subscription
+    set status = 'pendiente_verificacion',
+        payment_method = p_payment_method,
+        updated_at = now()
+    where id = 1;
+end;
+$$;
+
+grant execute on function request_subscription_verification(text) to authenticated;
 
 -- =========================================================
 -- Función create_order: el checkout llama a esta función en vez de
