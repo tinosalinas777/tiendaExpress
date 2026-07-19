@@ -41,20 +41,45 @@ export default function AdminSubscription() {
 
   const handleNotifyTransfer = async () => {
     setError('')
+
+    // Si ya está activa y no está por vencer, probablemente sea un click
+    // por error (ya se confirmó antes) — confirmamos antes de reabrir el
+    // estado de "pendiente de verificación" sin necesidad.
+    if (!isExpired && !isPendingVerification && subscription?.current_period_end) {
+      const endDateLabel = new Date(subscription.current_period_end + 'T00:00:00').toLocaleDateString('es-AR')
+      const confirmed = window.confirm(
+        `Tu suscripción ya figura activa hasta el ${endDateLabel}. ¿Igual querés avisar un pago nuevo?`,
+      )
+      if (!confirmed) return
+    }
+
     setNotifying(true)
+    // Abrimos la ventana YA, en el mismo instante del click (antes de
+    // cualquier await) — si esperamos a que termine el pedido al servidor
+    // para recién ahí abrir la ventana, muchos navegadores (sobre todo en
+    // el celular) la bloquean como si fuera un pop-up no solicitado. Acá
+    // le cargamos la URL real recién cuando ya sabemos que salió bien.
+    const waWindow = window.open('', '_blank')
     try {
       const { error: rpcError } = await supabase.rpc('request_subscription_verification', {
         p_payment_method: 'transferencia',
       })
       if (rpcError) throw rpcError
       await refresh()
-      window.open(
-        buildDeveloperWhatsappLink(
-          `Hola! Te aviso que ya hice la transferencia de la suscripción mensual de mi tienda. Quedo pendiente de la confirmación.`,
-        ),
-        '_blank',
+
+      const link = buildDeveloperWhatsappLink(
+        `Hola! Te aviso que ya hice la transferencia de la suscripción mensual de mi tienda. Quedo pendiente de la confirmación.`,
       )
+      if (waWindow) {
+        waWindow.location.href = link
+      } else {
+        // Si el navegador bloqueó igual la ventana en blanco, probamos abrir
+        // el link directo — y si también lo bloquea, queda el botón manual
+        // que se muestra en pantalla mientras está "pendiente_verificacion".
+        window.open(link, '_blank')
+      }
     } catch (err) {
+      if (waWindow) waWindow.close()
       console.error(err)
       setError('No se pudo registrar el aviso. Probá de nuevo.')
     } finally {
@@ -102,10 +127,22 @@ export default function AdminSubscription() {
         </div>
 
         {isPendingVerification ? (
-          <p className="text-sm text-slate-600 bg-amber-50 rounded-lg p-3">
-            Ya avisaste que transferiste — en cuanto se confirme el pago, vuelve a quedar activa
-            automáticamente. Esto puede demorar hasta 24-48hs hábiles.
-          </p>
+          <div className="text-sm text-slate-600 bg-amber-50 rounded-lg p-3">
+            <p className="mb-2">
+              Ya avisaste que transferiste — en cuanto se confirme el pago, vuelve a quedar activa
+              automáticamente. Esto puede demorar hasta 24-48hs hábiles.
+            </p>
+            <a
+              href={buildDeveloperWhatsappLink(
+                'Hola! Te aviso que ya hice la transferencia de la suscripción mensual de mi tienda. Quedo pendiente de la confirmación.',
+              )}
+              target="_blank"
+              rel="noreferrer"
+              className="underline font-semibold text-amber-800"
+            >
+              ¿No se abrió WhatsApp solo? Tocá acá para escribir el mensaje a mano
+            </a>
+          </div>
         ) : isExpired ? (
           <p className="text-sm text-slate-600 bg-red-50 rounded-lg p-3">
             Tu suscripción venció el {endDate}. Podés seguir viendo y gestionando tus pedidos, pero

@@ -13,7 +13,7 @@ export function buildWhatsappLink(message = "") {
 // Este es TU número de WhatsApp (el desarrollador/revendedor), no el del
 // negocio — es a donde te llega el aviso cuando el cliente dice "ya
 // transferí". Va a ser distinto en cada tienda que repliques.
-export const DEVELOPER_WHATSAPP_NUMBER = "5491127227613"; // <- PONÉ ACÁ TU NÚMERO REAL
+export const DEVELOPER_WHATSAPP_NUMBER = "5491127227613"; // <- TODAVÍA ES EL NÚMERO DE EJEMPLO, PONÉ EL TUYO
 
 export function buildDeveloperWhatsappLink(message = "") {
   return `https://wa.me/${DEVELOPER_WHATSAPP_NUMBER}${message ? `?text=${encodeURIComponent(message)}` : ""}`;

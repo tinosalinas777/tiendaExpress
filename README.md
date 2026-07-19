@@ -287,13 +287,16 @@ con Mercado Pago o avisando que hizo una transferencia.
   "Ya transferí, avisar" — eso le manda un WhatsApp a **tu** número (no al
   de la tienda) y deja la suscripción en estado "pendiente de
   verificación". Vos confirmás el pago a mano desde el SQL Editor de
-  Supabase:
+  Supabase (extiende un mes desde el vencimiento actual, o desde hoy si ya
+  estaba vencida — misma lógica que usa el pago automático por Mercado
+  Pago, para que sea consistente):
   ```sql
   update subscription
     set status = 'activa',
-        current_period_end = (current_date + interval '30 days')::date,
         payment_method = 'transferencia',
-        last_payment_at = now()
+        current_period_end = greatest(current_period_end, current_date) + interval '1 month',
+        last_payment_at = now(),
+        updated_at = now()
     where id = 1;
   ```
 
